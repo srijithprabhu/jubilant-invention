@@ -1,0 +1,9 @@
+[package]
+name = "client-desktop"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+common = { path = "../common" }
+proto = { path = "../proto" }
+tokio.workspace = true
