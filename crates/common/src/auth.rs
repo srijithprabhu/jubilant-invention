@@ -79,31 +79,34 @@ impl JwtManager {
     }
 
     /// Generates a signed JWT for the specified User identity with `duration_secs` validity.
-    pub fn generate_token(&self, _user: &User) -> Result<String, AuthError> {
+    pub fn generate_token(&self, user: &User) -> Result<String, AuthError> {
         // TODO (User implementation):
         // 1. Calculate current unix timestamp and expiration timestamp using `chrono::Utc::now()`.
         // 2. Construct `AuthClaims` with `sub` = user.id, `email`, `name`, `provider`, `iat`, and `exp`.
         // 3. Encode the claims using `jsonwebtoken::encode` with `Header::default()` and `EncodingKey::from_secret(&self.secret)`.
         // 4. Map jsonwebtoken errors to `AuthError`.
-        let iat = chrono::Utc::now();
-        let exp = iat.add(chrono::Duration::seconds(self.duration_secs as i64));
+        let iat = chrono::Utc::now().timestamp() as usize;
+        let exp = iat + self.duration_secs as usize;
         let auth_claims = AuthClaims {
-            sub: _user.id.clone(),
-            email: _user.email.clone(),
-            name: _user.name.clone(),
-            provider: _user.provider.clone(),
-            iat: iat.timestamp() as usize,
-            exp: exp.timestamp() as usize,
+            sub: user.id.clone(),
+            email: user.email.clone(),
+            name: user.name.clone(),
+            provider: user.provider,
+            iat,
+            exp,
         };
-        let token = jsonwebtoken::encode(
+        let result = jsonwebtoken::encode(
             &Header::default(),
             &auth_claims,
-            &EncodingKey::from_secret(&self.secret)).unwrap();
-        Ok(token)
+            &EncodingKey::from_secret(&self.secret));
+        match result {
+            Ok(token) => Ok(token),
+            Err(_) => return Err(AuthError::Internal("Error encoding token".to_string()))
+        }
     }
 
     /// Verifies and decodes a signed JWT, returning the decoded `AuthClaims`.
-    pub fn verify_token(&self, _token: &str) -> Result<AuthClaims, AuthError> {
+    pub fn verify_token(&self, token: &str) -> Result<AuthClaims, AuthError> {
         // TODO (User implementation):
         // 1. Build a `Validation::default()`.
         // 2. Decode the token using `jsonwebtoken::decode::<AuthClaims>` with `DecodingKey::from_secret(&self.secret)`.
@@ -112,19 +115,15 @@ impl JwtManager {
         // 5. Handle other errors -> `AuthError::InvalidToken`.
         let mut validation = Validation::default();
         validation.leeway = 0;
-        let message = jsonwebtoken::decode::<AuthClaims>(
-            _token,
+        jsonwebtoken::decode::<AuthClaims>(
+            token,
             &DecodingKey::from_secret(&self.secret),
-            &validation);
-        match message {
-            Ok(claims) => Ok(claims.claims),
-            Err(err) => {
-                Err(match err.kind() {
-                    ErrorKind::ExpiredSignature => AuthError::ExpiredToken,
-                    ErrorKind::InvalidSignature => AuthError::SignatureInvalid,
-                    _ => AuthError::InvalidToken(_token.to_string())
-                })
-            }
-        }
+            &validation)
+        .map(|message| message.claims)
+        .map_err(|err| match err.kind() {
+            ErrorKind::ExpiredSignature => AuthError::ExpiredToken,
+            ErrorKind::InvalidSignature => AuthError::SignatureInvalid,
+            _ => AuthError::InvalidToken(token.to_string())
+        })
     }
 }
