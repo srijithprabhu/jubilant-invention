@@ -1,6 +1,7 @@
 use std::error;
 use std::ops::Add;
-use jsonwebtoken::{EncodingKey, Header};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::errors::ErrorKind;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -109,6 +110,21 @@ impl JwtManager {
         // 3. Handle `jsonwebtoken::errors::ErrorKind::ExpiredSignature` -> `AuthError::ExpiredToken`.
         // 4. Handle `ErrorKind::InvalidSignature` -> `AuthError::SignatureInvalid`.
         // 5. Handle other errors -> `AuthError::InvalidToken`.
-        todo!("Implement JWT token verification and decoding with jsonwebtoken")
+        let mut validation = Validation::default();
+        validation.leeway = 0;
+        let message = jsonwebtoken::decode::<AuthClaims>(
+            _token,
+            &DecodingKey::from_secret(&self.secret),
+            &validation);
+        match message {
+            Ok(claims) => Ok(claims.claims),
+            Err(err) => {
+                Err(match err.kind() {
+                    ErrorKind::ExpiredSignature => AuthError::ExpiredToken,
+                    ErrorKind::InvalidSignature => AuthError::SignatureInvalid,
+                    _ => AuthError::InvalidToken(_token.to_string())
+                })
+            }
+        }
     }
 }
