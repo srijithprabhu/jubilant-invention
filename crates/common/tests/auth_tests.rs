@@ -90,8 +90,8 @@ fn test_jwt_expiration_rejection() {
         .generate_token(&user)
         .expect("Token generation should succeed");
 
-    // Brief sleep to ensure token timestamp has elapsed
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    // Sleep to ensure the Unix timestamp (which has 1-second granularity) elapses past exp
+    std::thread::sleep(std::time::Duration::from_millis(1100));
 
     let result = jwt_manager.verify_token(&token);
     assert!(
