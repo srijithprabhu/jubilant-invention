@@ -1,3 +1,6 @@
+use std::error;
+use std::ops::Add;
+use jsonwebtoken::{EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,7 +84,21 @@ impl JwtManager {
         // 2. Construct `AuthClaims` with `sub` = user.id, `email`, `name`, `provider`, `iat`, and `exp`.
         // 3. Encode the claims using `jsonwebtoken::encode` with `Header::default()` and `EncodingKey::from_secret(&self.secret)`.
         // 4. Map jsonwebtoken errors to `AuthError`.
-        todo!("Implement JWT token generation with jsonwebtoken")
+        let iat = chrono::Utc::now();
+        let exp = iat.add(chrono::Duration::seconds(self.duration_secs as i64));
+        let auth_claims = AuthClaims {
+            sub: _user.id.clone(),
+            email: _user.email.clone(),
+            name: _user.name.clone(),
+            provider: _user.provider.clone(),
+            iat: iat.timestamp() as usize,
+            exp: exp.timestamp() as usize,
+        };
+        let token = jsonwebtoken::encode(
+            &Header::default(),
+            &auth_claims,
+            &EncodingKey::from_secret(&self.secret)).unwrap();
+        Ok(token)
     }
 
     /// Verifies and decodes a signed JWT, returning the decoded `AuthClaims`.
