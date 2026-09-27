@@ -1,5 +1,3 @@
-use std::error;
-use std::ops::Add;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
 use jsonwebtoken::errors::ErrorKind;
 use serde::{Deserialize, Serialize};
@@ -80,7 +78,6 @@ impl JwtManager {
 
     /// Generates a signed JWT for the specified User identity with `duration_secs` validity.
     pub fn generate_token(&self, user: &User) -> Result<String, AuthError> {
-        // TODO (User implementation):
         // 1. Calculate current unix timestamp and expiration timestamp using `chrono::Utc::now()`.
         // 2. Construct `AuthClaims` with `sub` = user.id, `email`, `name`, `provider`, `iat`, and `exp`.
         // 3. Encode the claims using `jsonwebtoken::encode` with `Header::default()` and `EncodingKey::from_secret(&self.secret)`.
@@ -107,7 +104,6 @@ impl JwtManager {
 
     /// Verifies and decodes a signed JWT, returning the decoded `AuthClaims`.
     pub fn verify_token(&self, token: &str) -> Result<AuthClaims, AuthError> {
-        // TODO (User implementation):
         // 1. Build a `Validation::default()`.
         // 2. Decode the token using `jsonwebtoken::decode::<AuthClaims>` with `DecodingKey::from_secret(&self.secret)`.
         // 3. Handle `jsonwebtoken::errors::ErrorKind::ExpiredSignature` -> `AuthError::ExpiredToken`.
