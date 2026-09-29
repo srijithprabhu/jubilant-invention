@@ -2,7 +2,7 @@ use std::sync::Arc;
 use axum::{
     async_trait,
     extract::{FromRef, FromRequestParts, State},
-    http::{request::Parts, StatusCode},
+    http::{request::Parts, StatusCode, header::AUTHORIZATION},
     routing::{get, post},
     Json, Router,
 };
@@ -91,105 +91,92 @@ where
     type Rejection = (StatusCode, Json<serde_json::Value>);
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        // 1. Extract `Authorization` header from `parts.headers`.
-        //    If missing -> return 401 Unauthorized with json error `{"error": "Missing authorization header"}`.
-        // 2. Validate format: must start with "Bearer ".
-        //    If invalid format -> return 401 Unauthorized with json error `{"error": "Invalid authorization scheme"}`.
-        // 3. Extract token slice and retrieve AppState using `AppState::from_ref(state)`.
-        // 4. Verify token via `app_state.jwt_manager.verify_token(token)`.
-        // 5. If valid -> return `Ok(AuthUser(claims))`.
-        //    If expired/invalid -> return 401 Unauthorized with corresponding error message.
-        let auth_header = parts.headers.get("Authorization");
-        if auth_header.is_none() {
-            return Err((StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "Missing authorization header"}))));
-        }
-        let auth_header = auth_header.unwrap().to_str().unwrap();
-        if !auth_header.starts_with("Bearer ") {
-            return Err((StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "Invalid authorization scheme"}))));
-        }
-        let token = &auth_header["Bearer ".len()..];
+        let auth_header = parts
+            .headers
+            .get(AUTHORIZATION)
+            .and_then(|val| val.to_str().ok())
+            .ok_or_else(|| {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({ "error": "Missing authorization header" })),
+                )
+            })?;
+
+        let token = auth_header
+            .strip_prefix("Bearer ")
+            .ok_or_else(|| {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({ "error": "Invalid authorization scheme" })),
+                )
+            })?;
+
         let app_state = AppState::from_ref(state);
-        let valid = app_state.jwt_manager.verify_token(token);
-        match valid {
-            Ok(claims) => Ok(AuthUser(claims)),
-            Err(err) => Err(
-                (StatusCode::UNAUTHORIZED,
-                 Json(serde_json::json!({"error": format!("Invalid token: {}", err)})))
-            )
-        }
+        let claims = app_state
+            .jwt_manager
+            .verify_token(token)
+            .map_err(|err| {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({ "error": format!("Invalid token: {err}") })),
+                )
+            })?;
+
+        Ok(AuthUser(claims))
     }
+}
+
+pub struct ApiError(pub StatusCode, pub String);
+
+impl axum::response::IntoResponse for ApiError {
+    fn into_response(self) -> axum::response::Response {
+        (
+            self.0,
+            Json(serde_json::json!({ "error": self.1 })),
+        )
+            .into_response()
+    }
+}
+
+async fn exchange_and_issue_token(
+    provider: &dyn OAuthProviderService,
+    jwt_manager: &JwtManager,
+    payload: OAuthExchangePayload,
+) -> Result<Json<AuthResponse>, ApiError> {
+    let user = provider
+        .exchange_code(&payload.code, payload.redirect_uri.as_deref())
+        .await
+        .map_err(|err| {
+            ApiError(
+                StatusCode::BAD_REQUEST,
+                err.to_string(),
+            )
+        })?;
+
+    let session_token = jwt_manager
+        .generate_token(&user)
+        .map_err(|err| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                err.to_string(),
+            )
+        })?;
+
+    Ok(Json(AuthResponse { session_token, user }))
 }
 
 pub async fn handle_google_login(
     State(state): State<AppState>,
     Json(payload): Json<OAuthExchangePayload>,
-) -> Result<Json<AuthResponse>, (StatusCode, Json<serde_json::Value>)> {
-    // TODO (User implementation):
-    // 1. Exchange code via `state.google_auth.exchange_code(&payload.code, payload.redirect_uri.as_deref()).await`.
-    // 2. On error -> return 400 Bad Request or 401 with JSON error description.
-    // 3. On success -> generate session token via `state.jwt_manager.generate_token(&user)`.
-    // 4. Return `Json(AuthResponse { session_token, user })`.
-    let user = state
-        .google_auth
-        .exchange_code(&payload.code, payload.redirect_uri.as_deref())
-        .await
-        .map_err(|err| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": err.to_string() })),
-            )
-        })?;
-
-    let session_token = state
-        .jwt_manager
-        .generate_token(&user)
-        .map_err(|err| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": err.to_string() })),
-            )
-        })?;
-
-    Ok(Json(AuthResponse {
-        session_token,
-        user,
-    }))
+) -> Result<Json<AuthResponse>, ApiError> {
+    exchange_and_issue_token(state.google_auth.as_ref(), &state.jwt_manager, payload).await
 }
 
 pub async fn handle_facebook_login(
     State(state): State<AppState>,
     Json(payload): Json<OAuthExchangePayload>,
-) -> Result<Json<AuthResponse>, (StatusCode, Json<serde_json::Value>)> {
-    // TODO (User implementation):
-    // 1. Exchange code via `state.facebook_auth.exchange_code(&payload.code, payload.redirect_uri.as_deref()).await`.
-    // 2. On error -> return 400 Bad Request or 401 with JSON error description.
-    // 3. On success -> generate session token via `state.jwt_manager.generate_token(&user)`.
-    // 4. Return `Json(AuthResponse { session_token, user })`.
-    let user = state
-        .facebook_auth
-        .exchange_code(&payload.code, payload.redirect_uri.as_deref())
-        .await
-        .map_err(|err| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": err.to_string() })),
-            )
-        })?;
-
-    let session_token = state
-        .jwt_manager
-        .generate_token(&user)
-        .map_err(|err| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": err.to_string() })),
-            )
-        })?;
-
-    Ok(Json(AuthResponse {
-        session_token,
-        user,
-    }))
+) -> Result<Json<AuthResponse>, ApiError> {
+    exchange_and_issue_token(state.facebook_auth.as_ref(), &state.jwt_manager, payload).await
 }
 
 pub async fn handle_me(auth_user: AuthUser) -> Json<AuthClaims> {
