@@ -1,3 +1,4 @@
+use std::net::ToSocketAddrs;
 use std::sync::Arc;
 use axum::{
     async_trait,
@@ -82,13 +83,15 @@ pub struct AppState {
 
 pub struct AuthUser(pub AuthClaims);
 
+pub struct ApiError(pub StatusCode, pub String);
+
 #[async_trait]
 impl<S> FromRequestParts<S> for AuthUser
 where
     AppState: FromRef<S>,
     S: Send + Sync,
 {
-    type Rejection = (StatusCode, Json<serde_json::Value>);
+    type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let auth_header = parts
@@ -96,18 +99,18 @@ where
             .get(AUTHORIZATION)
             .and_then(|val| val.to_str().ok())
             .ok_or_else(|| {
-                (
+                ApiError(
                     StatusCode::UNAUTHORIZED,
-                    Json(serde_json::json!({ "error": "Missing authorization header" })),
+                    "Missing authorization header".to_string(),
                 )
             })?;
 
         let token = auth_header
             .strip_prefix("Bearer ")
             .ok_or_else(|| {
-                (
+                ApiError(
                     StatusCode::UNAUTHORIZED,
-                    Json(serde_json::json!({ "error": "Invalid authorization scheme" })),
+                    "Invalid authorization scheme".to_string(),
                 )
             })?;
 
@@ -116,17 +119,15 @@ where
             .jwt_manager
             .verify_token(token)
             .map_err(|err| {
-                (
+                ApiError(
                     StatusCode::UNAUTHORIZED,
-                    Json(serde_json::json!({ "error": format!("Invalid token: {err}") })),
+                    format!("Invalid token: {err}"),
                 )
             })?;
 
         Ok(AuthUser(claims))
     }
 }
-
-pub struct ApiError(pub StatusCode, pub String);
 
 impl axum::response::IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
