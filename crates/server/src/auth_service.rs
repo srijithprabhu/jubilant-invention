@@ -21,6 +21,20 @@ pub struct GoogleOAuthService {
     pub client_secret: String,
 }
 
+impl GoogleOAuthService {
+    pub fn new(
+        client: reqwest::Client,
+        client_id: impl Into<String>,
+        client_secret: impl Into<String>,
+    ) -> Self {
+        Self {
+            client,
+            client_id: client_id.into(),
+            client_secret: client_secret.into(),
+        }
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct GoogleOAuthTokenResponse {
     access_token: String,
@@ -88,6 +102,20 @@ pub struct FacebookOAuthService {
     pub app_secret: String,
 }
 
+impl FacebookOAuthService {
+    pub fn new(
+        client: reqwest::Client,
+        app_id: impl Into<String>,
+        app_secret: impl Into<String>,
+    ) -> Self {
+        Self {
+            client,
+            app_id: app_id.into(),
+            app_secret: app_secret.into(),
+        }
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct FacebookAccessTokenResponse {
     access_token: String,
@@ -114,7 +142,6 @@ struct FacebookUserProfile {
 #[async_trait]
 impl OAuthProviderService for FacebookOAuthService {
     async fn exchange_code(&self, code: &str, redirect_uri: Option<&str>) -> Result<User, AuthError> {
-        // TODO (User implementation):
         // Exchange authorization code with Facebook Graph API and retrieve user profile.
         const TOKEN_ENDPOINT: &str = "https://graph.facebook.com/v19.0/oauth/access_token";
         let params = [
@@ -190,7 +217,8 @@ impl OAuthProviderService for MockOAuthService {
 
 #[derive(Clone)]
 pub struct AppState {
-    pub jwt_manager: JwtManager,
+    pub http_client: reqwest::Client,
+    pub jwt_manager: Arc<JwtManager>,
     pub google_auth: Arc<dyn OAuthProviderService>,
     pub facebook_auth: Arc<dyn OAuthProviderService>,
 }

@@ -40,7 +40,8 @@ fn setup_test_app() -> (axum::Router, JwtManager, User, User) {
     );
 
     let state = AppState {
-        jwt_manager: jwt_manager.clone(),
+        http_client: reqwest::Client::new(),
+        jwt_manager: Arc::new(jwt_manager.clone()),
         google_auth: google_mock,
         facebook_auth: fb_mock,
     };
