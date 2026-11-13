@@ -51,7 +51,6 @@ struct GoogleUserInfo {
 #[async_trait]
 impl OAuthProviderService for GoogleOAuthService {
     async fn exchange_code(&self, code: &str, redirect_uri: Option<&str>) -> Result<User, AuthError> {
-        // TODO (User implementation):
         // Exchange authorization code with Google OAuth2 token endpoint and retrieve user profile.
         const GRANT_TYPE: &str = "authorization_code";
         const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";

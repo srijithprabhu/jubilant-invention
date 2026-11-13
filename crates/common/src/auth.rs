@@ -43,12 +43,6 @@ impl AuthClaims {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SessionToken {
-    pub token: String,
-    pub expires_at: i64,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OAuthExchangePayload {
     pub code: String,
