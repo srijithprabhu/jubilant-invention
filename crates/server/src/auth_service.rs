@@ -16,30 +16,145 @@ pub trait OAuthProviderService: Send + Sync {
 }
 
 pub struct GoogleOAuthService {
+    pub client: reqwest::Client,
     pub client_id: String,
     pub client_secret: String,
 }
 
+#[derive(serde::Deserialize)]
+struct GoogleOAuthTokenResponse {
+    access_token: String,
+}
+
+#[derive(serde::Deserialize)]
+struct GoogleUserInfo {
+    sub: String,
+    email: String,
+    name: String,
+    picture: Option<String>,
+}
+
 #[async_trait]
 impl OAuthProviderService for GoogleOAuthService {
-    async fn exchange_code(&self, _code: &str, _redirect_uri: Option<&str>) -> Result<User, AuthError> {
+    async fn exchange_code(&self, code: &str, redirect_uri: Option<&str>) -> Result<User, AuthError> {
         // TODO (User implementation):
         // Exchange authorization code with Google OAuth2 token endpoint and retrieve user profile.
-        todo!("Implement Google OAuth2 code exchange")
+        const GRANT_TYPE: &str = "authorization_code";
+        const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
+        let params = [
+            ("code", code),
+            ("grant_type", GRANT_TYPE),
+            ("redirect_uri", redirect_uri.unwrap_or("")),
+            ("client_id", &self.client_id),
+            ("client_secret", &self.client_secret),
+        ];
+        let token_response: GoogleOAuthTokenResponse = self.client.post(TOKEN_ENDPOINT)
+            .form(&params)
+            .send()
+            .await
+            .map_err(|err| AuthError::ProviderError(err.to_string()))?
+            .error_for_status()
+            .map_err(|err| AuthError::ProviderError(format!("Google token exchange failed: {err}")))?
+            .json()
+            .await
+            .map_err(|err| AuthError::ProviderError(err.to_string()))?;
+        const USER_INFO: &str = "https://www.googleapis.com/oauth2/v3/userinfo";
+        let user_info: GoogleUserInfo = self.client.get(USER_INFO)
+            .bearer_auth(token_response.access_token)
+            .send()
+            .await
+            .map_err(|err| AuthError::ProviderError(err.to_string()))?
+            .error_for_status()
+            .map_err(|err| AuthError::ProviderError(format!("Google userinfo request failed: {err}")))?
+            .json()
+            .await
+            .map_err(|err| AuthError::ProviderError(err.to_string()))?;
+
+        let user = User {
+            id: format!("google-{}", user_info.sub), // or a generated UUID
+            email: user_info.email,
+            name: user_info.name,
+            avatar_url: user_info.picture,
+            provider: AuthProvider::Google,
+            provider_user_id: user_info.sub,
+        };
+        Ok(user)
     }
 }
 
 pub struct FacebookOAuthService {
+    pub client: reqwest::Client,
     pub app_id: String,
     pub app_secret: String,
 }
 
+#[derive(serde::Deserialize)]
+struct FacebookAccessTokenResponse {
+    access_token: String,
+}
+
+#[derive(serde::Deserialize)]
+struct FacebookPictureData {
+    url: String,
+}
+
+#[derive(serde::Deserialize)]
+struct FacebookPicture {
+    data: FacebookPictureData,
+}
+
+#[derive(serde::Deserialize)]
+struct FacebookUserProfile {
+    id: String,
+    name: String,
+    email: Option<String>,
+    picture: Option<FacebookPicture>,
+}
+
 #[async_trait]
 impl OAuthProviderService for FacebookOAuthService {
-    async fn exchange_code(&self, _code: &str, _redirect_uri: Option<&str>) -> Result<User, AuthError> {
+    async fn exchange_code(&self, code: &str, redirect_uri: Option<&str>) -> Result<User, AuthError> {
         // TODO (User implementation):
         // Exchange authorization code with Facebook Graph API and retrieve user profile.
-        todo!("Implement Facebook OAuth2 code exchange")
+        const TOKEN_ENDPOINT: &str = "https://graph.facebook.com/v19.0/oauth/access_token";
+        let params = [
+            ("code", code),
+            ("redirect_uri", redirect_uri.unwrap_or("")),
+            ("client_id", &self.app_id),
+            ("client_secret", &self.app_secret),
+        ];
+        let response: FacebookAccessTokenResponse = self.client.post(TOKEN_ENDPOINT)
+            .form(&params)
+            .send()
+            .await
+            .map_err(|err| AuthError::ProviderError(err.to_string()))?
+            .error_for_status()
+            .map_err(|err| AuthError::ProviderError(format!("Facebook token exchange failed: {err}")))?
+            .json()
+            .await
+            .map_err(|err| AuthError::ProviderError(err.to_string()))?;
+        let access_token = response.access_token;
+        const USER_ENDPOINT: &str = "https://graph.facebook.com/v19.0/me?fields=id,name,email,picture";
+        let user_response: FacebookUserProfile = self.client.get(USER_ENDPOINT)
+            .bearer_auth(access_token)
+            .send()
+            .await
+            .map_err(|err| AuthError::ProviderError(err.to_string()))?
+            .error_for_status()
+            .map_err(|err| AuthError::ProviderError(format!("Facebook user profile retrieval failed: {err}")))?
+            .json()
+            .await
+            .map_err(|err| AuthError::ProviderError(err.to_string()))?;
+        let avatar_url = user_response.picture.map(|p| p.data.url);
+        let user = User {
+            id: format!("facebook-{}", user_response.id),
+            name: user_response.name,
+            email: user_response.email.unwrap_or_default(),
+            avatar_url,
+            provider: AuthProvider::Facebook,
+            provider_user_id: user_response.id,
+        };
+        Ok(user)
     }
 }
 

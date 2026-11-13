@@ -16,6 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let google_client_id = std::env::var("GOOGLE_CLIENT_ID").unwrap_or_default();
     let google_client_secret = std::env::var("GOOGLE_CLIENT_SECRET").unwrap_or_default();
     let google_auth = Arc::new(GoogleOAuthService {
+        client: reqwest::Client::new(),
         client_id: google_client_id,
         client_secret: google_client_secret,
     });
@@ -23,6 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let facebook_app_id = std::env::var("FACEBOOK_APP_ID").unwrap_or_default();
     let facebook_app_secret = std::env::var("FACEBOOK_APP_SECRET").unwrap_or_default();
     let facebook_auth = Arc::new(FacebookOAuthService {
+        client: reqwest::Client::new(),
         app_id: facebook_app_id,
         app_secret: facebook_app_secret,
     });
