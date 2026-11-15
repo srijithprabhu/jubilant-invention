@@ -1,5 +1,5 @@
 use std::error::Error;
-use wtransport::tls::{Identity, Sha256Digest};
+use wtransport::tls::{Identity, Sha256Digest, Sha256DigestFmt};
 
 /// Contains TLS identity details along with its computed SHA-256 certificate digest
 /// for WebTransport browser client configuration (`serverCertificateHashes`).
@@ -21,12 +21,17 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    let _ = san;
-    todo!("Generate self-signed TLS identity and compute its SHA-256 digest")
+    let identity = Identity::self_signed(san)?;
+    let digest = identity.certificate_chain().as_slice()[0].hash();
+    let digest_base64 = digest.fmt(Sha256DigestFmt::DottedHex);
+    Ok(TlsIdentityInfo {
+        identity,
+        digest,
+        digest_base64,
+    })
 }
 
 /// Extracts the SHA-256 digest from an existing `Identity`'s leaf certificate.
 pub fn extract_certificate_digest(identity: &Identity) -> Option<Sha256Digest> {
-    let _ = identity;
-    todo!("Extract the leaf certificate SHA-256 digest from the identity")
+    Some(identity.certificate_chain().as_slice()[0].hash())
 }
