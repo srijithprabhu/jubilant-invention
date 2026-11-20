@@ -85,7 +85,7 @@ impl WebTransportServer {
         connection: Connection,
         peer_id: String,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        println!("Peer connected: {peer_id}");
+        tracing::info_span!("Peer connected: ", %peer_id);
 
         loop {
             tokio::select! {
@@ -102,7 +102,7 @@ impl WebTransportServer {
                             break;
                         }
                         Err(e) => {
-                            eprintln!("Stream error for peer {peer_id}: {e}");
+                            tracing::error!("Stream error for peer {peer_id}: {e}");
                             break;
                         }
                     }
@@ -121,7 +121,7 @@ impl WebTransportServer {
                             break;
                         }
                         Err(e) => {
-                            eprintln!("Datagram error for peer {peer_id}: {e}");
+                            tracing::error!("Datagram error for peer {peer_id}: {e}");
                             break;
                         }
                     }
@@ -129,7 +129,7 @@ impl WebTransportServer {
             }
         }
 
-        println!("Peer disconnected: {peer_id}");
+        tracing::info_span!("Peer disconnected: ", %peer_id);
         Ok(())
     }
 
@@ -154,7 +154,7 @@ impl WebTransportServer {
                 let session_request = match incoming_session.await {
                     Ok(req) => req,
                     Err(err) => {
-                        eprintln!("Failed to negotiate session request: {err}");
+                        tracing::error_span!("Failed to negotiate session request: ", %err);
                         return;
                     }
                 };
@@ -163,15 +163,15 @@ impl WebTransportServer {
                     Ok(peer_id) => match session_request.accept().await {
                         Ok(connection) => {
                             if let Err(e) = server.handle_connection(connection, peer_id).await {
-                                eprintln!("Connection error: {e}");
+                                tracing::error_span!("Connection error: ", %e);
                             }
                         }
                         Err(err) => {
-                            eprintln!("Failed to accept session: {err}");
+                            tracing::error_span!("Failed to accept session: ", %err);
                         }
                     },
                     Err(reason) => {
-                        eprintln!("Rejecting unauthenticated session: {reason}");
+                        tracing::error_span!("Rejecting unauthenticated session: ", %reason);
                         let _ = session_request.forbidden().await;
                     }
                 }
