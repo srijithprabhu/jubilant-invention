@@ -33,11 +33,11 @@ impl WtServerConfig {
 /// - `"/wt?user=alice&token=xyz123"` -> `Some("xyz123")`
 /// - `"/wt"` -> `None`
 pub fn extract_token_from_path(path: &str) -> Option<String> {
-    path.split_once("?")
-        .map(|(_, value)| value.split("&"))?
-        .find(|value| value.starts_with("token="))
-        .map(|query| query.split_once("="))?
-        .map(|(_, token)| token.to_string())
+    path.split_once('?')?
+        .1
+        .split('&')
+        .find_map(|param| param.strip_prefix("token="))
+        .map(String::from)
 }
 
 pub struct WebTransportServer {
@@ -64,11 +64,15 @@ impl WebTransportServer {
     /// 2. Verifies the token using `self.jwt_manager.verify_token(&token)`.
     /// 3. Returns the authenticated `peer_id` (the JWT `sub` / user ID) on success, or an error description.
     pub fn authenticate_session_request(&self, session_request: &SessionRequest) -> Result<String, String> {
-        extract_token_from_path(session_request.path())
-            .map(|token| self.jwt_manager.verify_token(&token))
-            .unwrap()
-            .map_err(|err| err.to_string())
-            .map(|claims| claims.sub)
+        let token = extract_token_from_path(session_request.path())
+            .ok_or_else(|| "Missing 'token' query parameter".to_string())?;
+
+        let claims = self
+            .jwt_manager
+            .verify_token(&token)
+            .map_err(|err| err.to_string())?;
+
+        Ok(claims.sub)
     }
 
     /// Handles an established WebTransport connection lifecycle for an authenticated peer.
@@ -139,48 +143,39 @@ impl WebTransportServer {
     ///    - If valid: accepts session with `session_request.accept().await` and spawns `handle_connection`.
     ///    - If invalid: rejects session with `session_request.forbidden().await`.
     pub async fn serve(self: Arc<Self>) -> Result<(), Box<dyn Error + Send + Sync>> {
-        // 1. Build and bind the WebTransport endpoint
         let server_config = self.config.build_server_config();
         let endpoint = Endpoint::server(server_config)?;
 
-        // 2. Loop continuously to accept incoming sessions
         loop {
             let incoming_session = endpoint.accept().await;
-            // incoming_session is an incoming QUIC connection waiting for HTTP/3 CONNECT
-            let session_request = match incoming_session.await {
-                Ok(req) => req,
-                Err(err) => {
-                    // Handshake error or client disconnect before CONNECT
-                    eprintln!("Failed to negotiate session request: {err}");
-                    continue;
-                }
-            };
-
-            // 3. Authenticate the session
             let server = Arc::clone(&self);
-            match server.authenticate_session_request(&session_request) {
-                Ok(peer_id) => {
-                    // 4. Accept the WebTransport session
-                    match session_request.accept().await {
+
+            tokio::spawn(async move {
+                let session_request = match incoming_session.await {
+                    Ok(req) => req,
+                    Err(err) => {
+                        eprintln!("Failed to negotiate session request: {err}");
+                        return;
+                    }
+                };
+
+                match server.authenticate_session_request(&session_request) {
+                    Ok(peer_id) => match session_request.accept().await {
                         Ok(connection) => {
-                            // 5. Spawn background task for this peer
-                            tokio::spawn(async move {
-                                if let Err(e) = server.handle_connection(connection, peer_id).await {
-                                    eprintln!("Connection error: {e}");
-                                }
-                            });
+                            if let Err(e) = server.handle_connection(connection, peer_id).await {
+                                eprintln!("Connection error: {e}");
+                            }
                         }
                         Err(err) => {
                             eprintln!("Failed to accept session: {err}");
                         }
+                    },
+                    Err(reason) => {
+                        eprintln!("Rejecting unauthenticated session: {reason}");
+                        let _ = session_request.forbidden().await;
                     }
                 }
-                Err(reason) => {
-                    eprintln!("Rejecting unauthenticated session: {reason}");
-                    // 6. Reject the session with 403 Forbidden
-                    let _ = session_request.forbidden().await;
-                }
-            }
+            });
         }
     }
 }
